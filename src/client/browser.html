@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+		/>
+		<title>Horizon Browser</title>
+		<meta
+			name="description"
+			content="Horizon is a fast, calm browser for the open web, powered by Ultraviolet."
+		/>
+		<meta name="theme-color" content="#0b0d12" />
+		<meta name="color-scheme" content="dark light" />
+		<link rel="icon" href="favicon.png" type="image/png" sizes="256x256" />
+		<link rel="icon" href="favicon.ico" sizes="any" />
+		<script>
+			// Apply the saved theme before first paint to avoid a flash.
+			try {
+				const saved = JSON.parse(
+					localStorage.getItem("horizon.settings.v1") || "{}"
+				);
+				const theme =
+					saved.theme === "system" || !saved.theme
+						? matchMedia("(prefers-color-scheme: light)").matches
+							? "light"
+							: "dark"
+						: saved.theme;
+				document.documentElement.dataset.theme =
+					theme === "light" ? "light" : "dark";
+			} catch {
+				// First visit or storage disabled: keep the dark default.
+			}
+		</script>
+		<link rel="stylesheet" href="index.css" />
+	</head>
+
+	<body class="browser-body">
+		<!-- Inline icon sprite. Using a sprite keeps the app dependency-free. -->
+		<svg class="icon-sprite" aria-hidden="true" focusable="false">
+			<symbol id="i-back" viewBox="0 0 24 24">
+				<path d="M19 12H5" />
+				<path d="m12 19-7-7 7-7" />
+			</symbol>
+			<symbol id="i-forward" viewBox="0 0 24 24">
+				<path d="M5 12h14" />
+				<path d="m12 5 7 7-7 7" />
+			</symbol>
+			<symbol id="i-reload" viewBox="0 0 24 24">
+				<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+				<path d="M21 3v5h-5" />
+			</symbol>
+			<symbol id="i-stop" viewBox="0 0 24 24">
+				<path d="M18 6 6 18M6 6l12 12" />
+			</symbol>
+			<symbol id="i-home" viewBox="0 0 24 24">
+				<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+				<polyline points="9 22 9 12 15 12 15 22" />
+			</symbol>
+			<symbol id="i-star" viewBox="0 0 24 24">
+				<polygon
+					points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+				/>
+			</symbol>
+			<symbol id="i-plus" viewBox="0 0 24 24">
+				<path d="M12 5v14M5 12h14" />
+			</symbol>
+			<symbol id="i-x" viewBox="0 0 24 24">
+				<path d="M18 6 6 18M6 6l12 12" />
+			</symbol>
+			<symbol id="i-menu" viewBox="0 0 24 24">
+				<circle cx="12" cy="12" r="1.25" />
+				<circle cx="19" cy="12" r="1.25" />
+				<circle cx="5" cy="12" r="1.25" />
+			</symbol>
+			<symbol id="i-settings" viewBox="0 0 24 24">
+				<line x1="4" y1="21" x2="4" y2="14" />
+				<line x1="4" y1="10" x2="4" y2="3" />
+				<line x1="12" y1="21" x2="12" y2="12" />
+				<line x1="12" y1="8" x2="12" y2="3" />
+				<line x1="20" y1="21" x2="20" y2="16" />
+				<line x1="20" y1="12" x2="20" y2="3" />
+				<line x1="1" y1="14" x2="7" y2="14" />
+				<line x1="9" y1="8" x2="15" y2="8" />
+				<line x1="17" y1="16" x2="23" y2="16" />
+			</symbol>
+			<symbol id="i-search" viewBox="0 0 24 24">
+				<circle cx="11" cy="11" r="8" />
+				<path d="m21 21-4.35-4.35" />
+			</symbol>
+			<symbol id="i-bookmark" viewBox="0 0 24 24">
+				<path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+			</symbol>
+			<symbol id="i-clock" viewBox="0 0 24 24">
+				<circle cx="12" cy="12" r="10" />
+				<polyline points="12 6 12 12 16 14" />
+			</symbol>
+			<symbol id="i-trash" viewBox="0 0 24 24">
+				<path d="M3 6h18" />
+				<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+				<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+			</symbol>
+			<symbol id="i-external" viewBox="0 0 24 24">
+				<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+				<polyline points="15 3 21 3 21 9" />
+				<line x1="10" y1="14" x2="21" y2="3" />
+			</symbol>
+			<symbol id="i-lock" viewBox="0 0 24 24">
+				<rect x="3" y="11" width="18" height="11" rx="2" />
+				<path d="M7 11V7a5 5 0 0 1 10 0v4" />
+			</symbol>
+			<symbol id="i-globe" viewBox="0 0 24 24">
+				<circle cx="12" cy="12" r="10" />
+				<line x1="2" y1="12" x2="22" y2="12" />
+				<path
+					d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+				/>
+			</symbol>
+			<symbol id="i-shield" viewBox="0 0 24 24">
+				<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+			</symbol>
+			<symbol id="i-chevron-down" viewBox="0 0 24 24">
+				<path d="m6 9 6 6 6-6" />
+			</symbol>
+			<symbol id="i-chevron-right" viewBox="0 0 24 24">
+				<path d="m9 18 6-6-6-6" />
+			</symbol>
+			<symbol id="i-keyboard" viewBox="0 0 24 24">
+				<rect x="2" y="4" width="20" height="16" rx="2" />
+				<path
+					d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"
+				/>
+			</symbol>
+			<symbol id="i-monitor" viewBox="0 0 24 24">
+				<rect x="2" y="3" width="20" height="14" rx="2" />
+				<line x1="8" y1="21" x2="16" y2="21" />
+				<line x1="12" y1="17" x2="12" y2="21" />
+			</symbol>
+			<symbol id="i-sun" viewBox="0 0 24 24">
+				<circle cx="12" cy="12" r="4" />
+				<path
+					d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+				/>
+			</symbol>
+			<symbol id="i-moon" viewBox="0 0 24 24">
+				<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+			</symbol>
+			<symbol id="i-alert" viewBox="0 0 24 24">
+				<path
+					d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"
+				/>
+				<line x1="12" y1="9" x2="12" y2="13" />
+				<line x1="12" y1="17" x2="12.01" y2="17" />
+			</symbol>
+			<symbol id="i-check" viewBox="0 0 24 24">
+				<polyline points="20 6 9 17 4 12" />
+			</symbol>
+			<symbol id="i-wifi-off" viewBox="0 0 24 24">
+				<line x1="1" y1="1" x2="23" y2="23" />
+				<path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+				<path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+				<path d="M10.71 5.05A16 16 0 0 1 22.58 9" />
+				<path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+				<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+				<line x1="12" y1="20" x2="12.01" y2="20" />
+			</symbol>
+			<symbol id="i-copy" viewBox="0 0 24 24">
+				<rect x="9" y="9" width="13" height="13" rx="2" />
+				<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+			</symbol>
+			<symbol id="i-maximize" viewBox="0 0 24 24">
+				<path
+					d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"
+				/>
+			</symbol>
+		</svg>
+
+		<div class="app" id="app">
+			<header class="chrome">
+				<div class="tabstrip">
+					<div
+						class="tabs"
+						id="tabs"
+						role="tablist"
+						aria-label="Open tabs"
+					></div>
+					<button
+						type="button"
+						class="icon-btn tab-new"
+						id="new-tab"
+						title="New tab (Ctrl + T)"
+						aria-label="New tab"
+					>
+						<svg class="icon"><use href="#i-plus"></use></svg>
+					</button>
+					<div class="tabstrip-spacer"></div>
+				</div>
+
+				<div class="toolbar">
+					<div class="nav-group">
+						<button
+							type="button"
+							class="icon-btn"
+							id="back"
+							title="Back (Alt + Left)"
+							aria-label="Back"
+						>
+							<svg class="icon"><use href="#i-back"></use></svg>
+						</button>
+						<button
+							type="button"
+							class="icon-btn"
+							id="forward"
+							title="Forward (Alt + Right)"
+							aria-label="Forward"
+						>
+							<svg class="icon"><use href="#i-forward"></use></svg>
+						</button>
+						<button
+							type="button"
+							class="icon-btn"
+							id="reload"
+							title="Reload (Ctrl + R)"
+							aria-label="Reload"
+						>
+							<svg class="icon icon-reload"><use href="#i-reload"></use></svg>
+							<svg class="icon icon-stop"><use href="#i-stop"></use></svg>
+						</button>
+						<button
+							type="button"
+							class="icon-btn nav-home"
+							id="home"
+							title="Home"
+							aria-label="Home"
+						>
+							<svg class="icon"><use href="#i-home"></use></svg>
+						</button>
+					</div>
+
+					<form class="address-form" id="address-form" autocomplete="off">
+						<div class="address-shell" id="address-shell">
+							<span class="site-icon" id="site-icon" aria-hidden="true">
+								<svg class="icon"><use href="#i-globe"></use></svg>
+							</span>
+							<input
+								id="address"
+								class="address-input"
+								type="text"
+								inputmode="search"
+								autocapitalize="off"
+								autocorrect="off"
+								spellcheck="false"
+								placeholder="Search or enter address"
+								aria-label="Address and search bar"
+								aria-autocomplete="list"
+								aria-controls="suggestions"
+								aria-expanded="false"
+							/>
+							<button
+								type="button"
+								class="address-clear"
+								id="address-clear"
+								title="Clear"
+								aria-label="Clear address"
+								hidden
+							>
+								<svg class="icon"><use href="#i-x"></use></svg>
+							</button>
+							<span
+								class="proxy-badge"
+								id="proxy-badge"
+								title="Traffic is routed through the Horizon proxy"
+							>
+								<svg class="icon"><use href="#i-shield"></use></svg>
+								<span class="proxy-badge-text">Proxied</span>
+							</span>
+						</div>
+						<div
+							class="suggestions"
+							id="suggestions"
+							role="listbox"
+							aria-label="Address suggestions"
+							hidden
+						></div>
+					</form>
+
+					<div class="tool-group">
+						<button
+							type="button"
+							class="icon-btn bookmark-toggle"
+							id="bookmark-toggle"
+							title="Bookmark this page (Ctrl + D)"
+							aria-label="Bookmark this page"
+							aria-pressed="false"
+						>
+							<svg class="icon"><use href="#i-star"></use></svg>
+						</button>
+						<button
+							type="button"
+							class="icon-btn"
+							id="menu-toggle"
+							title="Menu"
+							aria-label="Open menu"
+							aria-haspopup="menu"
+							aria-expanded="false"
+						>
+							<svg class="icon"><use href="#i-menu"></use></svg>
+						</button>
+					</div>
+				</div>
+
+				<div class="bookmarks-bar" id="bookmarks-bar"></div>
+				<div class="load-track" id="load-track" aria-hidden="true">
+					<div class="load-track-bar"></div>
+				</div>
+			</header>
+
+			<main class="viewport" id="viewport">
+				<div class="frames" id="frames"></div>
+
+				<section class="newtab" id="newtab" aria-label="New tab" hidden>
+					<div class="newtab-inner">
+						<form class="nt-search" id="nt-search">
+							<svg class="icon nt-search-icon">
+								<use href="#i-search"></use>
+							</svg>
+							<input
+								id="nt-input"
+								type="text"
+								inputmode="search"
+								autocapitalize="off"
+								autocorrect="off"
+								spellcheck="false"
+								placeholder="Search the web or enter an address"
+								aria-label="Search the web or enter an address"
+							/>
+							<button type="submit" class="nt-search-button">Go</button>
+						</form>
+
+						<div class="nt-columns">
+							<section class="nt-section">
+								<div class="nt-section-head">
+									<h2>Bookmarks</h2>
+									<button
+										type="button"
+										class="link-btn"
+										data-open-panel="bookmarks"
+									>
+										Manage
+									</button>
+								</div>
+								<div class="shortcuts" id="nt-shortcuts"></div>
+							</section>
+							<section class="nt-section">
+								<div class="nt-section-head">
+									<h2>Recently visited</h2>
+									<button
+										type="button"
+										class="link-btn"
+										data-open-panel="history"
+									>
+										History
+									</button>
+								</div>
+								<ul class="recent" id="nt-recent"></ul>
+							</section>
+						</div>
+
+						<div class="nt-footer">
+							<button type="button" class="link-btn" id="nt-settings">
+								<svg class="icon"><use href="#i-settings"></use></svg>
+								Customize Horizon
+							</button>
+							<button type="button" class="link-btn" id="nt-shortcuts-help">
+								<svg class="icon"><use href="#i-keyboard"></use></svg>
+								Keyboard shortcuts
+							</button>
+						</div>
+					</div>
+				</section>
+
+				<div class="page-error" id="page-error" role="alert" hidden>
+					<div class="error-card">
+						<div class="error-icon">
+							<svg class="icon"><use href="#i-alert"></use></svg>
+						</div>
+						<h2 id="error-title">This page couldn't be loaded</h2>
+						<p id="error-message">The connection was interrupted.</p>
+						<pre id="error-detail" hidden></pre>
+						<div class="error-actions">
+							<button type="button" class="primary-btn" id="error-retry">
+								<svg class="icon"><use href="#i-reload"></use></svg>
+								Try again
+							</button>
+							<button type="button" class="secondary-btn" id="error-home">
+								<svg class="icon"><use href="#i-home"></use></svg>
+								Go home
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<div class="slow-banner" id="slow-banner" role="status" hidden>
+					<span>This page is taking a while to load.</span>
+					<button type="button" class="link-btn" id="slow-stop">Stop</button>
+					<button type="button" class="link-btn" id="slow-retry">Retry</button>
+				</div>
+
+				<div class="find-bar" id="find-bar" hidden>
+					<svg class="icon"><use href="#i-search"></use></svg>
+					<input
+						id="find-input"
+						type="text"
+						placeholder="Find in page"
+						aria-label="Find in page"
+						autocomplete="off"
+						spellcheck="false"
+					/>
+					<span class="find-status" id="find-status" aria-live="polite"></span>
+					<button
+						type="button"
+						class="icon-btn small"
+						id="find-prev"
+						title="Previous (Shift + Enter)"
+						aria-label="Previous match"
+					>
+						<svg class="icon" style="transform: rotate(180deg)">
+							<use href="#i-chevron-down"></use>
+						</svg>
+					</button>
+					<button
+						type="button"
+						class="icon-btn small"
+						id="find-next"
+						title="Next (Enter)"
+						aria-label="Next match"
+					>
+						<svg class="icon"><use href="#i-chevron-down"></use></svg>
+					</button>
+					<button
+						type="button"
+						class="icon-btn small"
+						id="find-close"
+						title="Close (Esc)"
+						aria-label="Close find bar"
+					>
+						<svg class="icon"><use href="#i-x"></use></svg>
+					</button>
+				</div>
+			</main>
+
+			<div class="offline-banner" id="offline-banner" hidden>
+				<svg class="icon"><use href="#i-wifi-off"></use></svg>
+				You're offline. Reconnect to keep browsing.
+			</div>
+
+			<aside
+				class="panel"
+				id="panel"
+				aria-label="Browser panel"
+				aria-hidden="true"
+				hidden
+			>
+				<header class="panel-head">
+					<div>
+						<h2 id="panel-title">Bookmarks</h2>
+						<p class="panel-subtitle" id="panel-subtitle"></p>
+					</div>
+					<div class="panel-head-actions">
+						<button
+							type="button"
+							class="icon-btn"
+							id="panel-primary"
+							title=""
+							hidden
+						></button>
+						<button
+							type="button"
+							class="icon-btn"
+							id="panel-close"
+							title="Close"
+							aria-label="Close panel"
+						>
+							<svg class="icon"><use href="#i-x"></use></svg>
+						</button>
+					</div>
+				</header>
+				<div class="panel-tools">
+					<div class="panel-search">
+						<svg class="icon"><use href="#i-search"></use></svg>
+						<input
+							id="panel-filter"
+							type="search"
+							placeholder="Filter"
+							aria-label="Filter panel items"
+							autocomplete="off"
+						/>
+					</div>
+					<button
+						type="button"
+						class="secondary-btn small"
+						id="panel-clear"
+						hidden
+					>
+						<svg class="icon"><use href="#i-trash"></use></svg>
+						Clear all
+					</button>
+				</div>
+				<div class="panel-list" id="panel-list"></div>
+				<div class="panel-empty" id="panel-empty" hidden></div>
+			</aside>
+
+			<div class="scrim" id="scrim" hidden></div>
+
+			<div class="menu" id="menu" role="menu" hidden>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="new-tab"
+				>
+					<span
+						><svg class="icon"><use href="#i-plus"></use></svg>New tab</span
+					><kbd>Ctrl + T</kbd>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="home"
+				>
+					<span
+						><svg class="icon"><use href="#i-home"></use></svg>Home</span
+					>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-panel="bookmarks"
+				>
+					<span
+						><svg class="icon"><use href="#i-bookmark"></use></svg
+						>Bookmarks</span
+					>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-panel="history"
+				>
+					<span
+						><svg class="icon"><use href="#i-clock"></use></svg>History</span
+					><kbd>Ctrl + H</kbd>
+				</button>
+				<div class="menu-sep"></div>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="bookmark"
+				>
+					<span
+						><svg class="icon"><use href="#i-star"></use></svg>Bookmark this
+						page</span
+					><kbd>Ctrl + D</kbd>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="find"
+				>
+					<span
+						><svg class="icon"><use href="#i-search"></use></svg>Find in
+						page</span
+					><kbd>Ctrl + F</kbd>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="zoom-out"
+				>
+					<span>Zoom out</span><kbd>Ctrl + −</kbd>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="zoom-reset"
+				>
+					<span>Reset zoom</span><kbd>Ctrl + 0</kbd>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="zoom-in"
+				>
+					<span>Zoom in</span><kbd>Ctrl + +</kbd>
+				</button>
+				<div class="menu-sep"></div>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="fullscreen"
+				>
+					<span
+						><svg class="icon"><use href="#i-maximize"></use></svg
+						>Fullscreen</span
+					><kbd>F11</kbd>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="shortcuts"
+				>
+					<span
+						><svg class="icon"><use href="#i-keyboard"></use></svg>Keyboard
+						shortcuts</span
+					>
+				</button>
+				<button
+					type="button"
+					class="menu-item"
+					role="menuitem"
+					data-action="settings"
+				>
+					<span
+						><svg class="icon"><use href="#i-settings"></use></svg
+						>Settings</span
+					>
+				</button>
+			</div>
+
+			<div class="context-menu" id="tab-menu" role="menu" hidden></div>
+
+			<dialog class="dialog" id="settings-dialog">
+				<form method="dialog" class="dialog-form" id="settings-form" novalidate>
+					<header class="dialog-head">
+						<div>
+							<h2>Settings</h2>
+							<p>Make Horizon yours.</p>
+						</div>
+						<button type="submit" class="icon-btn" aria-label="Close settings">
+							<svg class="icon"><use href="#i-x"></use></svg>
+						</button>
+					</header>
+
+					<div class="dialog-body">
+						<section class="settings-section">
+							<h3>Appearance</h3>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label id="theme-label">Theme</label>
+									<p>Follow your system or pick a side.</p>
+								</div>
+								<div
+									class="segmented"
+									role="radiogroup"
+									aria-labelledby="theme-label"
+								>
+									<label>
+										<input type="radio" name="theme" value="system" />
+										<span
+											><svg class="icon"><use href="#i-monitor"></use></svg
+											>System</span
+										>
+									</label>
+									<label>
+										<input type="radio" name="theme" value="dark" />
+										<span
+											><svg class="icon"><use href="#i-moon"></use></svg
+											>Dark</span
+										>
+									</label>
+									<label>
+										<input type="radio" name="theme" value="light" />
+										<span
+											><svg class="icon"><use href="#i-sun"></use></svg
+											>Light</span
+										>
+									</label>
+								</div>
+							</div>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label for="setting-bookmarks-bar">Show bookmarks bar</label>
+									<p>Keep favourite sites one click away.</p>
+								</div>
+								<label class="switch">
+									<input type="checkbox" id="setting-bookmarks-bar" />
+									<span class="switch-track"></span>
+								</label>
+							</div>
+						</section>
+
+						<section class="settings-section">
+							<h3>Search and startup</h3>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label for="setting-search-engine">Search engine</label>
+									<p>Used when the address bar isn't a URL.</p>
+								</div>
+								<select id="setting-search-engine"></select>
+							</div>
+							<div class="setting-row stack" id="custom-engine-row" hidden>
+								<div class="setting-copy">
+									<label for="setting-custom-engine">Custom search URL</label>
+									<p>Include <code>%s</code> where the query belongs.</p>
+								</div>
+								<input
+									type="text"
+									inputmode="url"
+									id="setting-custom-engine"
+									placeholder="https://example.com/search?q=%s"
+									spellcheck="false"
+								/>
+								<p class="field-error" id="custom-engine-error" hidden></p>
+							</div>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label for="setting-homepage">Homepage</label>
+									<p>Where the home button takes you.</p>
+								</div>
+								<select id="setting-homepage">
+									<option value="newtab">New tab page</option>
+									<option value="custom">Custom address</option>
+								</select>
+							</div>
+							<div class="setting-row stack" id="homepage-row" hidden>
+								<div class="setting-copy">
+									<label for="setting-homepage-url">Homepage address</label>
+								</div>
+								<input
+									type="url"
+									id="setting-homepage-url"
+									placeholder="https://example.com"
+									spellcheck="false"
+								/>
+								<p class="field-error" id="homepage-error" hidden></p>
+							</div>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label for="setting-restore">Restore tabs on startup</label>
+									<p>Reopen the tabs you had open last time.</p>
+								</div>
+								<label class="switch">
+									<input type="checkbox" id="setting-restore" />
+									<span class="switch-track"></span>
+								</label>
+							</div>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label for="setting-zoom">Default page zoom</label>
+									<p>New tabs start at this zoom level.</p>
+								</div>
+								<select id="setting-zoom"></select>
+							</div>
+						</section>
+
+						<section class="settings-section">
+							<h3>Privacy and data</h3>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label>Browsing history</label>
+									<p id="history-count">No visits recorded.</p>
+								</div>
+								<button
+									type="button"
+									class="danger-btn small"
+									id="clear-history"
+								>
+									Clear history
+								</button>
+							</div>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label>Bookmarks</label>
+									<p id="bookmark-count">No bookmarks saved.</p>
+								</div>
+								<button
+									type="button"
+									class="danger-btn small"
+									id="clear-bookmarks"
+								>
+									Clear bookmarks
+								</button>
+							</div>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label>Export or import</label>
+									<p>Bookmarks, history and preferences as JSON.</p>
+								</div>
+								<div class="inline-actions">
+									<button
+										type="button"
+										class="secondary-btn small"
+										id="export-data"
+									>
+										Export
+									</button>
+									<button
+										type="button"
+										class="secondary-btn small"
+										id="import-data"
+									>
+										Import
+									</button>
+									<input
+										type="file"
+										id="import-file"
+										accept="application/json,.json"
+										hidden
+									/>
+								</div>
+							</div>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label>Reset Horizon</label>
+									<p>
+										Remove tabs, history, bookmarks and settings from this
+										device.
+									</p>
+								</div>
+								<button type="button" class="danger-btn small" id="reset-data">
+									Reset everything
+								</button>
+							</div>
+						</section>
+
+						<section class="settings-section">
+							<h3>Connection</h3>
+							<div class="setting-row">
+								<div class="setting-copy">
+									<label>Proxy status</label>
+									<p id="proxy-status-text">Checking…</p>
+								</div>
+								<button
+									type="button"
+									class="secondary-btn small"
+									id="proxy-retry"
+								>
+									Reconnect
+								</button>
+							</div>
+							<p class="settings-note">
+								Horizon loads pages through the Ultraviolet service worker. If a
+								site refuses to run in an embedded frame, it may not work here
+								even though the proxy is online.
+							</p>
+						</section>
+
+						<section class="settings-section about-section">
+							<div>
+								<strong>Horizon Browser</strong>
+								<p>Version 1.0.0 · Powered by Ultraviolet</p>
+							</div>
+							<a
+								class="secondary-btn small"
+								href="/credits.html"
+								target="_blank"
+								rel="noopener"
+							>
+								<svg class="icon"><use href="#i-external"></use></svg>
+								Licenses
+							</a>
+						</section>
+					</div>
+
+					<footer class="dialog-foot">
+						<span class="dialog-hint">Changes save automatically.</span>
+						<span
+							class="settings-feedback"
+							id="settings-feedback"
+							role="status"
+							hidden
+						></span>
+						<button type="submit" class="primary-btn">Done</button>
+					</footer>
+				</form>
+			</dialog>
+
+			<dialog class="dialog" id="shortcuts-dialog">
+				<form method="dialog" class="dialog-form">
+					<header class="dialog-head">
+						<div>
+							<h2>Keyboard shortcuts</h2>
+							<p>Get around without leaving the keyboard.</p>
+						</div>
+						<button type="submit" class="icon-btn" aria-label="Close shortcuts">
+							<svg class="icon"><use href="#i-x"></use></svg>
+						</button>
+					</header>
+					<div class="dialog-body shortcuts-body" id="shortcuts-body"></div>
+					<footer class="dialog-foot">
+						<span class="dialog-hint">On macOS, use ⌘ instead of Ctrl.</span>
+						<button type="submit" class="primary-btn">Done</button>
+					</footer>
+				</form>
+			</dialog>
+
+			<div
+				class="toasts"
+				id="toasts"
+				aria-live="polite"
+				aria-atomic="false"
+			></div>
+		</div>
+
+		<script src="baremux/index.js"></script>
+		<script src="uv/uv.bundle.js"></script>
+		<script src="uv/uv.config.js"></script>
+		<script src="register-sw.js"></script>
+		<script type="module" src="index.js"></script>
+	</body>
+</html>

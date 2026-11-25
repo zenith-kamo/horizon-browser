@@ -1,0 +1,7 @@
+{
+	"name": "Horizon Browser",
+	"description": "Ultraviolet web proxy browser",
+	"repository": "https://github.com/titaniumnetwork-dev/Ultraviolet-App",
+	"logo": "src/client/favicon.png",
+	"keywords": ["proxy", "browser", "ultraviolet", "horizon"]
+}
