@@ -8,8 +8,7 @@ UltraVioletを使用したプロキシブラウザ。タブ、履歴、ブック
 
 ## Links
 
-- [https://horizon.go.altare.global](https://horizon.go.altare.global)
-- [https://app.horizon-browser.cc.cd](https://app.horizon-browser.cc.cd)
+- [https://horizon-browser.cc.cd:25188/](https://horizon-browser.cc.cd:25188/)
 - [https://horizon.myaddr.tools:25188/](https://horizon.myaddr.tools:25188/)
 
 ## 機能
