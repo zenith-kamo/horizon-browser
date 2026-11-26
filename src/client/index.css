@@ -789,6 +789,40 @@ kbd {
 	padding: 16vh 24px 40px;
 }
 
+.nt-social {
+	position: absolute;
+	right: 20px;
+	bottom: 18px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.nt-social-btn {
+	display: grid;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	color: var(--muted);
+	background: transparent;
+	transition:
+		color 0.15s,
+		background-color 0.15s;
+}
+
+.nt-social-btn:hover,
+.nt-social-btn:focus-visible {
+	color: var(--text);
+	background: var(--surface-2);
+	outline: none;
+}
+
+.nt-social-icon {
+	width: 20px;
+	height: 20px;
+}
+
 .nt-search {
 	display: flex;
 	align-items: center;
