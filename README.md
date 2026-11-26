@@ -71,11 +71,8 @@ npm run build -- path/to/page.html public/sites/credits
 
 - `HTTPS_KEY_PATH` と `HTTPS_CERT_PATH` に秘密鍵・証明書（フルチェーン）のパスを指定する
 - `HTTPS_KEY` と `HTTPS_CERT` にPEM本文を直接指定する
-- 既定の `/etc/lego-production/certificates/horizon.myaddr.tools.key` と `fullchain.pem` が存在する場合は自動的にHTTPSを使用する<br>
-↑<br>
-＿人人人人人人＿<br>
-＞　私利私欲　＜<br>
-￣Y^Y^Y^Y^Y^Y^￣<br>
+- `HTTPS_CERTIFICATE_DIR`（既定は `/etc/lego-production/certificates`）を指定するか、そのディレクトリが存在する場合はlego形式の証明書を自動で読み込む
+
 `TLS_KEY_PATH` / `TLS_CERT_PATH`、`SSL_KEY_PATH` / `SSL_CERT_PATH` などの別名にも対応しています。
 
 ```bash
@@ -84,6 +81,37 @@ HTTPS_CERT_PATH=/path/to/fullchain.pem \
 PORT=25188 \
 npm start
 ```
+
+### 複数の証明書
+
+1つのポートで複数ドメインを受ける場合、SNIでホスト名ごとに証明書を選び分けます。
+
+**lego形式のディレクトリ**（`<ドメイン>/<ドメイン>.key` と `fullchain.pem` または `.crt`）を配置するだけで、すべてのドメインが自動的に読み込まれます。
+
+```text
+/etc/lego-production/certificates/
+├── horizon.myaddr.tools/
+│   ├── horizon.myaddr.tools.key
+│   └── fullchain.pem
+└── app.horizon-browser.cc.cd/
+    ├── app.horizon-browser.cc.cd.key
+    └── fullchain.pem
+```
+
+**任意の場所の証明書**を使う場合は、鍵と証明書を同じ順序のリストで指定します。
+
+```bash
+HTTPS_KEY_PATHS=/path/a.key,/path/b.key \
+HTTPS_CERT_PATHS=/path/a-fullchain.pem,/path/b-fullchain.pem \
+npm start
+```
+
+- 各証明書はホスト名（SAN、なければCN）で照合され、該当する証明書が返されます
+- 重複・ワイルドカードのホスト名は、先に読み込まれた証明書が優先されます
+- 秘密鍵と証明書が一致しない場合、またはリストの件数が異なる場合は起動エラーになります
+- SNIがない接続には最初の証明書が返されます
+
+### その他の設定
 
 - `HTTPS=1`：HTTPSを必須にする（証明書がない場合は起動エラー）
 - `HTTPS=0`：証明書が設定されていてもHTTPで起動する

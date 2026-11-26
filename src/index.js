@@ -1,8 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
+import { createSecureContext } from "node:tls";
+import { createPublicKey, X509Certificate } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import express from "express";
@@ -273,12 +275,44 @@ app.use((req, res) => {
 	res.sendFile(join(process.cwd(), "src/client/404.html"));
 });
 
-const DEFAULT_TLS = {
-	key: "/etc/lego-production/certificates/horizon.myaddr.tools.key",
-	cert: "/etc/lego-production/certificates/fullchain.pem",
+// Certificates published by lego's CERTIFICATE_DIR layout:
+// <CERTIFICATE_DIR>/<domain>/<domain>.key, <domain>.crt and fullchain.pem.
+// Several certificates share one server. OpenSSL only offers the first
+// certificate of a context, so SNI selects the matching context explicitly.
+const DEFAULT_CERTIFICATE_DIR = "/etc/lego-production/certificates";
+const LEGACY_TLS = {
+	key: join(DEFAULT_CERTIFICATE_DIR, "horizon.myaddr.tools.key"),
+	cert: join(DEFAULT_CERTIFICATE_DIR, "fullchain.pem"),
 };
 
-function firstEnv(...names) {
+const SCALAR_KEY_NAMES = [
+	"HTTPS_KEY_PATH",
+	"TLS_KEY_PATH",
+	"SSL_KEY_PATH",
+	"HTTPS_KEY",
+	"TLS_KEY",
+	"SSL_KEY",
+];
+const SCALAR_CERT_NAMES = [
+	"HTTPS_CERT_PATH",
+	"TLS_CERT_PATH",
+	"SSL_CERT_PATH",
+	"HTTPS_CERT",
+	"TLS_CERT",
+	"SSL_CERT",
+];
+const LIST_KEY_NAMES = ["HTTPS_KEY_PATHS", "TLS_KEY_PATHS", "SSL_KEY_PATHS"];
+const LIST_CERT_NAMES = [
+	"HTTPS_CERT_PATHS",
+	"TLS_CERT_PATHS",
+	"SSL_CERT_PATHS",
+];
+const BLOCK_PATTERN =
+	/-----BEGIN [A-Z0-9 ]+-----([\s\S]*?)-----END [A-Z0-9 ]+-----/g;
+const CERTIFICATE_PATTERN =
+	/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g;
+
+function firstEnv(names) {
 	for (const name of names) {
 		const value = process.env[name];
 		if (value && value.trim()) return { name, value: value.trim() };
@@ -286,8 +320,8 @@ function firstEnv(...names) {
 	return null;
 }
 
-function readTlsValue(source) {
-	if (source.value.includes("-----BEGIN")) {
+function readTlsValue(source, { asPath = false } = {}) {
+	if (!asPath) {
 		return source.value.replace(/\\n/g, "\n");
 	}
 
@@ -301,6 +335,158 @@ function readTlsValue(source) {
 	}
 }
 
+// Splits a path list on commas, semicolons, pipes or whitespace.
+function splitList(value) {
+	return value
+		.split(/\s*,\s*|\s+|;|\|/g)
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+}
+
+function loadPemBlocks(values, pattern = BLOCK_PATTERN) {
+	const blocks = [];
+	for (const value of values) {
+		for (const match of value.matchAll(pattern)) {
+			blocks.push(match[0].trim());
+		}
+	}
+	if (!blocks.length) throw new Error("no PEM block found");
+	return blocks;
+}
+
+// Extracts the host names a certificate is valid for (SAN, otherwise CN).
+function certificateNames(cert) {
+	try {
+		const parsed = new X509Certificate(cert);
+		const names = new Set();
+		if (parsed.subjectAltName) {
+			for (const entry of parsed.subjectAltName.split(",")) {
+				const match = /^DNS:(.+)$/i.exec(entry.trim());
+				if (match) names.add(match[1].trim().toLowerCase());
+			}
+		}
+		const commonName = /(?:^|\n)CN=([^\n]+)/.exec(parsed.subject || "");
+		if (commonName) names.add(commonName[1].trim().toLowerCase());
+		return [...names].filter((name) => name && !name.includes("*"));
+	} catch {
+		return [];
+	}
+}
+
+// Decides whether a certificate belongs to a private key by comparing the
+// public key derived from each one.
+function matchesKey(cert, key) {
+	try {
+		return (
+			new X509Certificate(cert).publicKey.export({
+				type: "spki",
+				format: "pem",
+			}) === createPublicKey(key).export({ type: "spki", format: "pem" })
+		);
+	} catch {
+		return false;
+	}
+}
+
+function buildSniIndex(certificates) {
+	const index = new Map();
+	for (const certificate of certificates) {
+		for (const name of certificateNames(certificate.leaf)) {
+			if (!index.has(name)) index.set(name, certificate.context);
+		}
+	}
+	return index;
+}
+
+// Turns loaded certificates into TLS options. The first certificate is the
+// default, the rest are handed to OpenSSL so unknown hosts still get a
+// certificate while SNICallback resolves the exact match.
+function withSni(certificates) {
+	const index = buildSniIndex(certificates);
+	const names = certificates
+		.map((certificate) => certificate.domain)
+		.join(", ");
+
+	console.log(`[Horizon] HTTPS certificates: ${names}`);
+	if (!index.size) {
+		console.warn(
+			"[Horizon] Could not read certificate host names; relying on trust store matching."
+		);
+	}
+
+	return {
+		key: certificates.map((certificate) => certificate.key).join("\n"),
+		cert: certificates.map((certificate) => certificate.cert).join("\n"),
+		SNICallback(servername, callback) {
+			const context = index.get(String(servername).toLowerCase());
+			callback(null, context);
+		},
+	};
+}
+
+// Reads a certificate file and keeps every certificate block, so fullchain.pem
+// and cert.pem are both accepted.
+function loadCertificateChain(filePath, name) {
+	let pem;
+	try {
+		pem = readFileSync(filePath, "utf8");
+	} catch (error) {
+		throw new Error(`cannot read ${name} (${filePath})`);
+	}
+	return loadPemBlocks([pem]);
+}
+
+function loadCertificateDir(root) {
+	if (!existsSync(root)) {
+		throw new Error(`certificate directory ${root} was not found`);
+	}
+
+	const entries = readdirSync(root, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name)
+		.sort();
+
+	const certificates = [];
+	const errors = [];
+
+	for (const domain of entries) {
+		const directory = join(root, domain);
+		const keyPath = join(directory, `${domain}.key`);
+		const certPath = join(directory, `${domain}.crt`);
+		const fullchainPath = join(directory, "fullchain.pem");
+
+		if (!existsSync(keyPath)) continue;
+
+		try {
+			const [key] = loadPemBlocks([
+				readTlsValue({ name: "key", value: keyPath }, { asPath: true }),
+			]);
+
+			// fullchain.pem already contains the leaf, so read it first.
+			const certBlocks = existsSync(fullchainPath)
+				? loadCertificateChain(fullchainPath, `${domain} fullchain`)
+				: loadCertificateChain(certPath, `${domain} certificate`);
+			const leaf = certBlocks.find((block) => matchesKey(block, key));
+			if (!leaf) {
+				throw new Error("certificate does not match the private key");
+			}
+
+			const chain = [leaf, ...certBlocks.filter((block) => block !== leaf)];
+			certificates.push({
+				domain,
+				key,
+				cert: chain.join("\n"),
+				leaf,
+				context: createSecureContext({ key, cert: chain.join("\n") }),
+			});
+		} catch (error) {
+			errors.push(`${domain}: ${error.message}`);
+		}
+	}
+
+	return { certificates, errors };
+}
+
 function resolveTlsOptions() {
 	const setting = (process.env.HTTPS || "").trim().toLowerCase();
 	if (["0", "false", "no", "off", "disabled"].includes(setting)) {
@@ -310,41 +496,113 @@ function resolveTlsOptions() {
 	const required = ["1", "true", "yes", "on", "required", "force"].includes(
 		setting
 	);
-	const keySource = firstEnv(
-		"HTTPS_KEY_PATH",
-		"TLS_KEY_PATH",
-		"SSL_KEY_PATH",
-		"HTTPS_KEY",
-		"TLS_KEY",
-		"SSL_KEY"
-	);
-	const certSource = firstEnv(
-		"HTTPS_CERT_PATH",
-		"TLS_CERT_PATH",
-		"SSL_CERT_PATH",
-		"HTTPS_CERT",
-		"TLS_CERT",
-		"SSL_CERT"
-	);
+
+	const keyPathList = firstEnv(LIST_KEY_NAMES);
+	const certPathList = firstEnv(LIST_CERT_NAMES);
+
+	// Several certificates share one port: every certificate gets its own
+	// secure context and SNI picks the matching one.
+	if (keyPathList || certPathList) {
+		if (!keyPathList || !certPathList) {
+			throw new Error(
+				"Both HTTPS_KEY_PATHS and HTTPS_CERT_PATHS are required when using multiple certificates."
+			);
+		}
+
+		const keyPaths = splitList(keyPathList.value);
+		const certPaths = splitList(certPathList.value);
+		if (!keyPaths.length || !certPaths.length) {
+			throw new Error(
+				"HTTPS_KEY_PATHS and HTTPS_CERT_PATHS must not be empty."
+			);
+		}
+		if (keyPaths.length !== certPaths.length) {
+			throw new Error(
+				`HTTPS_KEY_PATHS has ${keyPaths.length} entries but HTTPS_CERT_PATHS has ${certPaths.length}. Each key needs its own certificate.`
+			);
+		}
+
+		const certificates = keyPaths.map((keyPath, index) => {
+			const certPath = certPaths[index];
+			const [key] = loadPemBlocks([
+				readTlsValue(
+					{ name: `${keyPathList.name} entry`, value: keyPath },
+					{ asPath: true }
+				),
+			]);
+			const certBlocks = loadPemBlocks(
+				[
+					readTlsValue(
+						{ name: `${certPathList.name} entry`, value: certPath },
+						{ asPath: true }
+					),
+				],
+				CERTIFICATE_PATTERN
+			);
+			const leaf = certBlocks.find((block) => matchesKey(block, key));
+			if (!leaf) {
+				throw new Error(`${certPath} does not match the key ${keyPath}`);
+			}
+			const chain = [leaf, ...certBlocks.filter((block) => block !== leaf)];
+			return {
+				domain: certPath,
+				key,
+				cert: chain.join("\n"),
+				leaf,
+				context: createSecureContext({ key, cert: chain.join("\n") }),
+			};
+		});
+
+		return withSni(certificates);
+	}
+
+	const keySource = firstEnv(SCALAR_KEY_NAMES);
+	const certSource = firstEnv(SCALAR_CERT_NAMES);
 
 	if (!keySource && !certSource) {
-		const defaultFilesExist =
-			existsSync(DEFAULT_TLS.key) && existsSync(DEFAULT_TLS.cert);
-		if (!defaultFilesExist) {
+		// A lego certificate directory takes precedence over the legacy layout.
+		const certificateDir = firstEnv(["HTTPS_CERTIFICATE_DIR"]);
+		const defaultDir = certificateDir
+			? certificateDir.value
+			: DEFAULT_CERTIFICATE_DIR;
+		if (certificateDir || existsSync(defaultDir)) {
+			const { certificates, errors } = loadCertificateDir(
+				resolve(process.cwd(), defaultDir)
+			);
+			if (certificates.length) {
+				if (errors.length) {
+					console.warn(`[Horizon] Skipped certificates: ${errors.join("; ")}`);
+				}
+				return withSni(certificates);
+			}
+			if (certificateDir) {
+				throw new Error(
+					`no usable certificate found in ${defaultDir}${errors.length ? ` (${errors.join("; ")})` : ""}`
+				);
+			}
+		}
+
+		const legacyFilesExist =
+			existsSync(LEGACY_TLS.key) && existsSync(LEGACY_TLS.cert);
+		if (!legacyFilesExist) {
 			if (required) {
 				throw new Error(
-					"HTTPS was requested, but no certificate was found. Set HTTPS_KEY_PATH and HTTPS_CERT_PATH."
+					"HTTPS was requested, but no certificate was found. Set HTTPS_CERTIFICATE_DIR or HTTPS_KEY_PATH and HTTPS_CERT_PATH."
 				);
 			}
 			return null;
 		}
 
 		return {
-			key: readTlsValue({ name: "default key", value: DEFAULT_TLS.key }),
-			cert: readTlsValue({
-				name: "default certificate",
-				value: DEFAULT_TLS.cert,
-			}),
+			key: loadPemBlocks([
+				readTlsValue(
+					{ name: "default key", value: LEGACY_TLS.key },
+					{ asPath: true }
+				),
+			]).join("\n"),
+			cert: loadCertificateChain(LEGACY_TLS.cert, "default certificate").join(
+				"\n"
+			),
 		};
 	}
 
@@ -354,10 +612,26 @@ function resolveTlsOptions() {
 		);
 	}
 
-	return {
-		key: readTlsValue(keySource),
-		cert: readTlsValue(certSource),
-	};
+	const [key] = loadPemBlocks([
+		readTlsValue(keySource, {
+			asPath: !keySource.value.includes("-----BEGIN"),
+		}),
+	]);
+	const chain = loadPemBlocks(
+		[
+			readTlsValue(certSource, {
+				asPath: !certSource.value.includes("-----BEGIN"),
+			}),
+		],
+		CERTIFICATE_PATTERN
+	);
+	if (!chain.some((block) => matchesKey(block, key))) {
+		throw new Error(
+			"the private key does not match any certificate in the configured file."
+		);
+	}
+
+	return { key, cert: chain.join("\n") };
 }
 
 function createAppServer() {
