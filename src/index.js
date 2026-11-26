@@ -642,28 +642,47 @@ function createAppServer() {
 	return { server: createHttpServer(), protocol: "http" };
 }
 
-let appServer;
-try {
-	appServer = createAppServer();
-} catch (error) {
-	console.error(`[Horizon] TLS setup failed: ${error.message}`);
-	process.exit(1);
+function startAppServer() {
+	try {
+		const { server, protocol } = createAppServer();
+		attachServer(server, protocol);
+		return { server, protocol };
+	} catch (error) {
+		console.error(`[Horizon] TLS setup failed: ${error.message}`);
+		process.exit(1);
+	}
 }
 
-const { server, protocol } = appServer;
+function attachServer(server, protocol, { fatalOnError = true } = {}) {
+	server.on("request", (req, res) => {
+		res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+		res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+		app(req, res);
+	});
+	server.on("upgrade", (req, socket, head) => {
+		if (req.url.endsWith("/wisp/")) {
+			wisp.routeRequest(req, socket, head);
+			return;
+		}
+		socket.end();
+	});
 
-server.on("request", (req, res) => {
-	res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-	res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-	app(req, res);
-});
-server.on("upgrade", (req, socket, head) => {
-	if (req.url.endsWith("/wisp/")) {
-		wisp.routeRequest(req, socket, head);
-		return;
-	}
-	socket.end();
-});
+	server.on("listening", () => {
+		const address = server.address();
+		const shownAddress =
+			address.family === "IPv6" ? `[${address.address}]` : address.address;
+
+		console.log(`${protocol.toUpperCase()} server listening on:`);
+		console.log(`\t${protocol}://localhost:${address.port}`);
+		console.log(`\t${protocol}://${hostname()}:${address.port}`);
+		console.log(`\t${protocol}://${shownAddress}:${address.port}`);
+	});
+
+	server.on("error", (error) => {
+		console.error(`[Horizon] Server error: ${error.message}`);
+		if (fatalOnError) process.exit(1);
+	});
+}
 
 const portValue = (process.env.PORT || "8080").trim();
 const port = Number(portValue);
@@ -673,28 +692,43 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
 }
 const host = (process.env.HOST || "").trim() || "0.0.0.0";
 
-server.on("listening", () => {
-	const address = server.address();
-	const shownAddress =
-		address.family === "IPv6" ? `[${address.address}]` : address.address;
+let appServer = startAppServer();
 
-	console.log(`${protocol.toUpperCase()} server listening on:`);
-	console.log(`\t${protocol}://localhost:${address.port}`);
-	console.log(`\t${protocol}://${hostname()}:${address.port}`);
-	console.log(`\t${protocol}://${shownAddress}:${address.port}`);
-});
-
-server.on("error", (error) => {
-	console.error(`[Horizon] Server error: ${error.message}`);
-	process.exit(1);
+// SIGHUP reloads the configured certificates without dropping the port, so
+// renewed certificates can be picked up by a deploy hook. The previous server
+// closes first (a second listener cannot share the port); requests arriving
+// during the gap wait until the new listener accepts them.
+let reloading = false;
+process.on("SIGHUP", () => {
+	if (reloading) return;
+	reloading = true;
+	try {
+		console.log("[Horizon] SIGHUP received: reloading certificates");
+		const next = createAppServer();
+		attachServer(next.server, next.protocol, { fatalOnError: false });
+		const previous = appServer.server;
+		previous.close(() => {
+			next.server.listen({ port, host }, () => {
+				appServer = next;
+				reloading = false;
+				console.log("[Horizon] Certificates reloaded");
+			});
+		});
+		previous.closeIdleConnections?.();
+	} catch (error) {
+		reloading = false;
+		console.error(`[Horizon] Certificate reload failed: ${error.message}`);
+	}
 });
 
 let shuttingDown = false;
 function shutdown(signal) {
 	if (shuttingDown) return;
 	shuttingDown = true;
-	console.log(`${signal} received: closing ${protocol.toUpperCase()} server`);
-	server.close(() => process.exit(0));
+	console.log(
+		`${signal} received: closing ${appServer.protocol.toUpperCase()} server`
+	);
+	appServer.server.close(() => process.exit(0));
 	setTimeout(() => {
 		console.error("[Horizon] Forced shutdown after timeout.");
 		process.exit(1);
@@ -704,4 +738,4 @@ function shutdown(signal) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-server.listen({ port, host });
+appServer.server.listen({ port, host });
