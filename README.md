@@ -10,6 +10,7 @@ UltraVioletを使用したプロキシブラウザ。タブ、履歴、ブック
 
 - [https://horizon-browser.cc.cd:25188/](https://horizon-browser.cc.cd:25188/)
 - [https://horizon.myaddr.tools:25188/](https://horizon.myaddr.tools:25188/)
+- [https://horizon-browser.mytunnel.org:25188/](https://horizon-browser.mytunnel.org:25188/)
 
 ## 機能
 

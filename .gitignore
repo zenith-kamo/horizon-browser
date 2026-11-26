@@ -1,2 +1,5 @@
 node_modules
 .ssh/
+
+# ローカル専用の備忘録
+NOTES.local.md

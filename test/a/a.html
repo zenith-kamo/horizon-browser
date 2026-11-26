@@ -1,0 +1,520 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CroxyProxy URL Generator</title>
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 40px 20px;
+    min-height: 100vh;
+    background: #101114;
+    color: #eee;
+    font-family: system-ui, sans-serif;
+}
+
+main {
+    max-width: 760px;
+    margin: auto;
+}
+
+h1 {
+    font-size: 26px;
+    margin-bottom: 8px;
+}
+
+.description {
+    color: #999;
+    margin-bottom: 28px;
+}
+
+button {
+    border: 0;
+    border-radius: 9px;
+    padding: 12px 20px;
+    background: #5865f2;
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #4752c4;
+}
+
+button:disabled {
+    opacity: .5;
+    cursor: wait;
+}
+
+.info {
+    color: #999;
+    font-size: 13px;
+    margin: 18px 0;
+}
+
+.result {
+    margin-top: 25px;
+}
+
+.url-item {
+    background: #1b1d22;
+    border: 1px solid #30333a;
+    border-radius: 9px;
+    padding: 14px;
+    margin-bottom: 10px;
+    overflow-wrap: anywhere;
+}
+
+.url-item a {
+    color: #8ea5ff;
+    text-decoration: none;
+}
+
+.url-item a:hover {
+    text-decoration: underline;
+}
+
+.url-label {
+    color: #888;
+    font-size: 12px;
+    margin-bottom: 7px;
+}
+
+.url-value {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.copy {
+    margin-top: 9px;
+    padding: 7px 12px;
+    font-size: 12px;
+    background: #343944;
+}
+
+.error {
+    color: #ff7777;
+}
+</style>
+</head>
+
+<body>
+<main>
+    <h1>CroxyProxy URL Generator</h1>
+    <div class="description">
+        CroxyProxyのURL生成処理を再現します。
+    </div>
+
+    <button id="generateButton" onclick="generate()">
+        URLを生成
+    </button>
+
+    <div class="info" id="status">
+        生成ボタンを押してください。
+    </div>
+
+    <div id="result" class="result"></div>
+</main>
+
+<script>
+"use strict";
+
+/* =========================================
+   CroxyProxy configuration
+========================================= */
+
+const CONFIG = {
+    primary: "https://www.croxyproxy.com",
+
+    domains: [
+        "https://www.croxyproxy.rocks",
+        "https://www.croxyproxy.net",
+        "https://www.croxy.network"
+    ],
+
+    tlds: ["space", "site", "xyz"],
+
+    count: 2,
+
+    seed1:
+        "553c3f2e7053504b492d40762f4a3636673b553440743f48796d2d78785f26694a5d5547744f2256",
+
+    seed2:
+        "4d7067753746645056484b437046785341564f4a7444796c4d754c5578366e645576674f342d725f"
+};
+
+
+/* =========================================
+   Original encoding function (_)
+========================================= */
+
+function encodeURL(value) {
+    let hex = "";
+
+    for (let i = 0; i < value.length; i++) {
+        hex += value.charCodeAt(i).toString(16);
+    }
+
+    return btoa(hex);
+}
+
+
+/* =========================================
+   Original decoding function (U)
+========================================= */
+
+function decodeHex(value) {
+    return value
+        .match(/.{1,2}/g)
+        .map(part => String.fromCharCode(parseInt(part, 16)))
+        .join("");
+}
+
+
+/* =========================================
+   MD5 implementation
+========================================= */
+
+function md5(string) {
+    const bytes = new TextEncoder().encode(string);
+
+    const length = bytes.length;
+    const paddedLength = Math.ceil((length + 9) / 64) * 64;
+
+    const buffer = new Uint8Array(paddedLength);
+    buffer.set(bytes);
+    buffer[length] = 0x80;
+
+    const bitLength = length * 8;
+
+    const view = new DataView(buffer.buffer);
+    view.setUint32(paddedLength - 8, bitLength >>> 0, true);
+    view.setUint32(
+        paddedLength - 4,
+        Math.floor(bitLength / 0x100000000),
+        true
+    );
+
+    let a0 = 0x67452301;
+    let b0 = 0xefcdab89;
+    let c0 = 0x98badcfe;
+    let d0 = 0x10325476;
+
+    const shifts = [
+        7, 12, 17, 22,
+        5, 9, 14, 20,
+        4, 11, 16, 23,
+        6, 10, 15, 21
+    ];
+
+    const K = Array.from(
+        { length: 64 },
+        (_, i) => Math.floor(
+            Math.abs(Math.sin(i + 1)) * 0x100000000
+        ) >>> 0
+    );
+
+    function rotateLeft(x, n) {
+        return (x << n) | (x >>> (32 - n));
+    }
+
+    for (let offset = 0; offset < paddedLength; offset += 64) {
+        const M = [];
+
+        for (let i = 0; i < 16; i++) {
+            M[i] = view.getUint32(offset + i * 4, true);
+        }
+
+        let A = a0;
+        let B = b0;
+        let C = c0;
+        let D = d0;
+
+        for (let i = 0; i < 64; i++) {
+            let F, g, shift;
+
+            if (i < 16) {
+                F = (B & C) | (~B & D);
+                g = i;
+                shift = shifts[i % 4];
+            } else if (i < 32) {
+                F = (D & B) | (~D & C);
+                g = (5 * i + 1) % 16;
+                shift = shifts[4 + (i % 4)];
+            } else if (i < 48) {
+                F = B ^ C ^ D;
+                g = (3 * i + 5) % 16;
+                shift = shifts[8 + (i % 4)];
+            } else {
+                F = C ^ (B | ~D);
+                g = (7 * i) % 16;
+                shift = shifts[12 + (i % 4)];
+            }
+
+            const temp = D;
+            D = C;
+            C = B;
+
+            const sum = (
+                A + F + K[i] + M[g]
+            ) >>> 0;
+
+            B = (B + rotateLeft(sum, shift)) >>> 0;
+            A = temp;
+        }
+
+        a0 = (a0 + A) >>> 0;
+        b0 = (b0 + B) >>> 0;
+        c0 = (c0 + C) >>> 0;
+        d0 = (d0 + D) >>> 0;
+    }
+
+    function hex(value) {
+        return value.toString(16).padStart(8, "0");
+    }
+
+    function littleEndianHex(value) {
+        return [
+            value & 255,
+            (value >>> 8) & 255,
+            (value >>> 16) & 255,
+            (value >>> 24) & 255
+        ].map(v => v.toString(16).padStart(2, "0")).join("");
+    }
+
+    return (
+        littleEndianHex(a0) +
+        littleEndianHex(b0) +
+        littleEndianHex(c0) +
+        littleEndianHex(d0)
+    );
+}
+
+
+/* =========================================
+   Time API
+========================================= */
+
+async function getTimestamp() {
+    const timeout = new Promise((_, reject) => {
+        setTimeout(() => {
+            reject(new Error("Timeout"));
+        }, 12000);
+    });
+
+    try {
+        const request = fetch(
+            "https://timeapi.io/api/Time/current/zone?timeZone=Etc/UTC"
+        );
+
+        const response = await Promise.race([
+            request,
+            timeout
+        ]);
+
+        if (!response.ok) {
+            throw new Error("Time API error");
+        }
+
+        const data = await response.json();
+
+        if (!data.dateTime) {
+            throw new Error("Invalid time response");
+        }
+
+        let date = new Date(data.dateTime);
+
+        date = new Date(Date.UTC(
+            date.getFullYear(),
+            date.getMonth(),
+            date.getDate(),
+            date.getHours(),
+            date.getMinutes(),
+            date.getSeconds()
+        ));
+
+        return Math.floor(date.getTime() / 1000);
+
+    } catch (error) {
+        console.warn(
+            "Time API unavailable. Using local time.",
+            error
+        );
+
+        return Math.floor(Date.now() / 1000);
+    }
+}
+
+
+/* =========================================
+   Dynamic URL generation
+   Original: it()
+========================================= */
+
+function generateDynamicURLs(timestamp) {
+    const urls = [];
+
+    const e = Math.floor(timestamp / 86400) - 40;
+    const r = Math.floor(e / 2);
+    const n = Math.floor((e - 1) / 2);
+
+    function add(index, seed) {
+        const tld =
+            CONFIG.tlds[index % CONFIG.tlds.length];
+
+        const decodedSeed = decodeHex(seed);
+
+        const hash = md5(
+            decodedSeed + index
+        ).substring(0, 12);
+
+        urls.push(
+            encodeURL(
+                "https://www." + hash + "." + tld
+            )
+        );
+    }
+
+    const seed1 = CONFIG.seed1;
+    const seed2 = CONFIG.seed2;
+
+    add(r, seed1);
+    add(n, seed2);
+
+    for (
+        let i = r - 1;
+        i > r - CONFIG.count;
+        i--
+    ) {
+        add(i, seed1);
+    }
+
+    for (
+        let i = n - 1;
+        i > n - CONFIG.count;
+        i--
+    ) {
+        add(i, seed2);
+    }
+
+    return urls;
+}
+
+
+/* =========================================
+   Main URL generation
+   Original: it()
+========================================= */
+
+async function generateURLs() {
+    const timestamp = await getTimestamp();
+
+    const urls = [];
+
+    // Primary URL
+    urls.push(encodeURL(CONFIG.primary));
+
+    // Dynamic URLs
+    urls.push(...generateDynamicURLs(timestamp));
+
+    // Fixed URLs
+    for (const domain of CONFIG.domains) {
+        urls.push(encodeURL(domain));
+    }
+
+    return {
+        timestamp,
+        urls
+    };
+}
+
+
+/* =========================================
+   UI
+========================================= */
+
+function decodeBase64URL(value) {
+    const hex = atob(value);
+    let result = "";
+
+    for (let i = 0; i < hex.length; i += 2) {
+        result += String.fromCharCode(
+            parseInt(hex.substring(i, i + 2), 16)
+        );
+    }
+
+    return result;
+}
+
+function copyText(text) {
+    navigator.clipboard.writeText(text);
+}
+
+async function generate() {
+    const button = document.getElementById("generateButton");
+    const status = document.getElementById("status");
+    const result = document.getElementById("result");
+
+    button.disabled = true;
+    status.textContent = "URLを生成しています...";
+    result.innerHTML = "";
+
+    try {
+        const data = await generateURLs();
+
+        status.textContent =
+            "生成完了 / Timestamp: " + data.timestamp;
+
+        data.urls.forEach((encoded, index) => {
+            const decoded = decodeBase64URL(encoded);
+
+            const item = document.createElement("div");
+            item.className = "url-item";
+
+            const label = document.createElement("div");
+            label.className = "url-label";
+            label.textContent = "URL " + (index + 1);
+
+            const link = document.createElement("a");
+            link.href = decoded;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = decoded;
+
+            const copy = document.createElement("button");
+            copy.className = "copy";
+            copy.textContent = "エンコード済みURLをコピー";
+            copy.onclick = () => copyText(encoded);
+
+            item.append(label, link, document.createElement("br"), copy);
+            result.appendChild(item);
+        });
+
+        const allCopy = document.createElement("button");
+        allCopy.textContent = "すべてのURLをコピー";
+        allCopy.style.marginTop = "12px";
+
+        allCopy.onclick = () => {
+            copyText(data.urls.join("\n"));
+        };
+
+        result.appendChild(allCopy);
+
+    } catch (error) {
+        console.error(error);
+        status.innerHTML =
+            '<span class="error">生成に失敗しました。</span>';
+    } finally {
+        button.disabled = false;
+    }
+}
+</script>
+</body>
+</html>
